@@ -8,3 +8,13 @@
     Will now replace silly pixel-by-pixel rendering with drawing entire rects at once.
 
     Now 2.8ms.
+
+According to profiling, the biggest timesink now is the text rendering.
+And that's spent mostly on SDL_DestroyTexture and SDL_CreateTextureFromSurface.
+Some helpful suggestions:
+https://stackoverflow.com/questions/29064904/how-to-render-fonts-and-text-with-sdl2-efficiently
+
+Also tried running it in a browser.
+In Firefox, it's ~10x slower (~30ms frames).
+    And the optimized code crashed, complaining of integer overflow.
+In Chrome, much worse than even that (~90ms frames).

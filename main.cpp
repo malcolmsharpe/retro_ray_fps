@@ -7,6 +7,10 @@
 #include <SDL_image.h>
 #include <SDL_ttf.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #define FR(i,a,b) for(int i=(a);i<(b);++i)
 #define FOR(i,n) FR(i,0,n)
 
@@ -431,6 +435,19 @@ void render()
     SDL_RenderPresent(ren);
 }
 
+Uint32 prevFrame_ms;
+void main_loop()
+{
+    Uint32 thisFrame_ms = SDL_GetTicks();
+    Uint32 deltaFrame_ms = thisFrame_ms - prevFrame_ms;
+    accumTime(deltaFrame_ms);
+    deltaFrame_s = deltaFrame_ms / 1000.0;
+    update();
+    render();
+
+    prevFrame_ms = thisFrame_ms;
+}
+
 int main()
 {
     atexit(cleanup);
@@ -455,20 +472,16 @@ int main()
     player_angle = 0;
 
     // IO loop
-    Uint32 prevFrame_ms = SDL_GetTicks();
-    render();
-
+    prevFrame_ms = SDL_GetTicks();
     quitRequested = false;
-    while (!quitRequested) {
-        Uint32 thisFrame_ms = SDL_GetTicks();
-        Uint32 deltaFrame_ms = thisFrame_ms - prevFrame_ms;
-        accumTime(deltaFrame_ms);
-        deltaFrame_s = deltaFrame_ms / 1000.0;
-        update();
-        render();
 
-        prevFrame_ms = thisFrame_ms;
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop(main_loop, 0, 0);
+#else
+    while (!quitRequested) {
+        main_loop();
     }
+#endif
 
     return 0;
 }
