@@ -45,6 +45,13 @@ void failTTF(const char * msg)
 }
 #define CHECK_TTF(expr) if ((expr) < 0) failTTF(#expr)
 
+void failIMG(const char * msg)
+{
+    std::printf("IMG %s failed: %s\n", msg, IMG_GetError());
+    exit(1);
+}
+#define CHECK_IMG(expr) if ((expr) < 0) failIMG(#expr)
+
 void DrawText(SDL_Renderer * ren, TTF_Font * font, const char * s, SDL_Color color, int x, int y, int * textW, int * textH, bool center = false)
 {
     int tW, tH;
@@ -68,17 +75,39 @@ void DrawText(SDL_Renderer * ren, TTF_Font * font, const char * s, SDL_Color col
     if (SDL_RenderCopy(ren, textTex.get(), NULL, &dst) < 0) failSDL("SDL_RenderCopy");
 }
 
+SDL_Texture * LoadTexture(SDL_Renderer * ren, const char * path)
+{
+    SDL_Texture *tex = IMG_LoadTexture(ren, path);
+    if (!tex) failIMG("LoadTexture");
+    return tex;
+}
+
 // SDL data, cleanup, etc.
 SDL_Window * win = NULL;
 TTF_Font * font = NULL;
 SDL_Renderer * ren = NULL;
 
+sdl_ptr<SDL_Texture> red_brick;
+sdl_ptr<SDL_Texture> green_brick;
+sdl_ptr<SDL_Texture> red_panel;
+sdl_ptr<SDL_Texture> green_panel;
+sdl_ptr<SDL_Texture> red_2panel;
+sdl_ptr<SDL_Texture> green_2panel;
+
 void cleanup()
 {
+    red_brick.reset();
+    green_brick.reset();
+    red_panel.reset();
+    green_panel.reset();
+    red_2panel.reset();
+    green_2panel.reset();
+
     if (ren) SDL_DestroyRenderer(ren);
     if (font) TTF_CloseFont(font);
     if (win) SDL_DestroyWindow(win);
 
+    IMG_Quit();
     TTF_Quit();
     SDL_Quit();
 }
@@ -269,6 +298,7 @@ void render()
         double proj_ys[4] = {};
         double proj_dists[4] = {};
         int proj_colors[4] = {};
+        int proj_tex_offsets[4] = {};
 
         if (col_angle < 0.25 || 0.75 < col_angle) {
             // intersect ray with west-facing walls
@@ -286,6 +316,7 @@ void render()
                     proj_ys[0] = y;
                     proj_dists[0] = player_dx * (x-player_x) + player_dy * (y-player_y);
                     proj_colors[0] = 1;
+                    proj_tex_offsets[0] = static_cast<int>(16*(y-yf));
                     break;
                 }
             }
@@ -307,6 +338,7 @@ void render()
                     proj_ys[1] = y;
                     proj_dists[1] = player_dx * (x-player_x) + player_dy * (y-player_y);
                     proj_colors[1] = 2;
+                    proj_tex_offsets[1] = static_cast<int>(16*(x-xf));
                     break;
                 }
             }
@@ -328,6 +360,7 @@ void render()
                     proj_ys[2] = y;
                     proj_dists[2] = player_dx * (x-player_x) + player_dy * (y-player_y);
                     proj_colors[2] = 1;
+                    proj_tex_offsets[2] = static_cast<int>(16*(y-yf));
                     break;
                 }
             }
@@ -349,6 +382,7 @@ void render()
                     proj_ys[3] = y;
                     proj_dists[3] = player_dx * (x-player_x) + player_dy * (y-player_y);
                     proj_colors[3] = 2;
+                    proj_tex_offsets[3] = static_cast<int>(16*(x-xf));
                     break;
                 }
             }
@@ -359,11 +393,13 @@ void render()
         double proj_y = 0;
         double proj_dist = 0;
         int proj_color = 0;
+        int proj_tex_offset = 0;
         FOR(dir,4) if (proj_dists[dir] != 0 && (proj_dist == 0 || proj_dists[dir] < proj_dist)) {
             proj_x = proj_xs[dir];
             proj_y = proj_ys[dir];
             proj_dist = proj_dists[dir];
             proj_color = proj_colors[dir];
+            proj_tex_offset = proj_tex_offsets[dir];
         }
 
         if (proj_dist != 0) {
@@ -374,24 +410,20 @@ void render()
             int screen_y1 = TILE_ROWS/2-screen_half_height;
             int screen_y2 = TILE_ROWS/2+screen_half_height;
 
-            int r = 0, g = 0, b = 0;
-
-            switch (proj_color) {
-            case 1: r = 255; break;
-            case 2: g = 255; break;
-            }
-
             double color_mult = 1.0;
 
             color_mult = 0.2 * std::min(1.0/proj_dist, 1.0) + 0.8;
 
-            r = static_cast<int>(color_mult * r);
-            g = static_cast<int>(color_mult * g);
-            b = static_cast<int>(color_mult * b);
+            SDL_Texture * tex = NULL;
+            if (proj_color == 2) {
+                tex = green_2panel.get();
+            } else {
+                tex = red_2panel.get();
+            }
 
-            CHECK_SDL(SDL_SetRenderDrawColor(ren, r, g, b, 255));
-
-            drawtilerect(screen_col, screen_y1, 1, screen_y2 - screen_y1);
+            SDL_Rect srcrect = { proj_tex_offset, 0, 1, 16 };
+            SDL_Rect dstrect = { screen_col*TILE_SIZE, screen_y1*TILE_SIZE, TILE_SIZE, (screen_y2-screen_y1)*TILE_SIZE };
+            CHECK_SDL(SDL_RenderCopy(ren, tex, &srcrect, &dstrect));
 
             // for diagnostics
             if (screen_col == TILE_COLS/2) {
@@ -455,16 +487,27 @@ int main()
     if (SDL_Init(SDL_INIT_VIDEO) < 0) failSDL("SDL_Init");
     if (TTF_Init() == -1) failTTF("TTF_Init");
 
+    int flags = IMG_INIT_PNG;
+    if ((IMG_Init(flags) & flags) != flags) failIMG("IMG_Init");
+
     font = TTF_OpenFont("data/Vera.ttf", FONT_HEIGHT);
     if (!font) failTTF("TTF_OpenFont");
 
-    win = SDL_CreateWindow("SDL ASCII FPS",
+    win = SDL_CreateWindow("SDL Simple FPS",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         WIN_WIDTH, WIN_HEIGHT, SDL_WINDOW_SHOWN);
     if (!win) failSDL("SDL_CreateWindow");
 
     ren = SDL_CreateRenderer(win, -1, 0);
     if (!ren) failSDL("SDL_CreateRenderer");
+
+    // load textures
+    red_brick.reset(LoadTexture(ren, "data/red_brick.png"));
+    green_brick.reset(LoadTexture(ren, "data/green_brick.png"));
+    red_panel.reset(LoadTexture(ren, "data/red_panel.png"));
+    green_panel.reset(LoadTexture(ren, "data/green_panel.png"));
+    red_2panel.reset(LoadTexture(ren, "data/red_2panel.png"));
+    green_2panel.reset(LoadTexture(ren, "data/green_2panel.png"));
 
     // init game
     player_x = 1.5;
