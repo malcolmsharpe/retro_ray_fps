@@ -1,0 +1,10 @@
+464006e4ac167b70e9b522308dbf1918114f6ddc
+    Frame time = 16.7ms
+
+    That's with "-O".
+
+    "-O3": pretty much the same.
+
+    Will now replace silly pixel-by-pixel rendering with drawing entire rects at once.
+
+    Now 2.8ms.

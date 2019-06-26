@@ -221,8 +221,18 @@ void drawtile(int x, int y)
     SDL_Rect rect;
     rect.x = x * TILE_SIZE;
     rect.y = y * TILE_SIZE;
-    rect.w = 8;
-    rect.h = 8;
+    rect.w = TILE_SIZE;
+    rect.h = TILE_SIZE;
+    CHECK_SDL(SDL_RenderFillRect(ren, &rect));
+}
+
+void drawtilerect(int x, int y, int w, int h)
+{
+    SDL_Rect rect;
+    rect.x = x * TILE_SIZE;
+    rect.y = y * TILE_SIZE;
+    rect.w = w * TILE_SIZE;
+    rect.h = h * TILE_SIZE;
     CHECK_SDL(SDL_RenderFillRect(ren, &rect));
 }
 
@@ -233,13 +243,7 @@ void render()
 
     CHECK_SDL(SDL_SetRenderDrawColor(ren, 135, 206, 235, 255));
 
-    FOR(y,TILE_ROWS) {
-        if (y < TILE_ROWS/2) {
-            FOR(x, TILE_COLS) {
-                drawtile(x, y);
-            }
-        }
-    }
+    drawtilerect(0, 0, TILE_COLS, TILE_ROWS/2);
 
     double straight_x = 0;
     double straight_y = 0;
@@ -366,26 +370,24 @@ void render()
             int screen_y1 = TILE_ROWS/2-screen_half_height;
             int screen_y2 = TILE_ROWS/2+screen_half_height;
 
-            FR(screen_y, screen_y1, screen_y2) {
-                int r = 0, g = 0, b = 0;
+            int r = 0, g = 0, b = 0;
 
-                switch (proj_color) {
-                case 1: r = 255; break;
-                case 2: g = 255; break;
-                }
-
-                double color_mult = 1.0;
-
-                color_mult = 0.2 * std::min(1.0/proj_dist, 1.0) + 0.8;
-
-                r = static_cast<int>(color_mult * r);
-                g = static_cast<int>(color_mult * g);
-                b = static_cast<int>(color_mult * b);
-
-                CHECK_SDL(SDL_SetRenderDrawColor(ren, r, g, b, 255));
-
-                drawtile(screen_col, screen_y);
+            switch (proj_color) {
+            case 1: r = 255; break;
+            case 2: g = 255; break;
             }
+
+            double color_mult = 1.0;
+
+            color_mult = 0.2 * std::min(1.0/proj_dist, 1.0) + 0.8;
+
+            r = static_cast<int>(color_mult * r);
+            g = static_cast<int>(color_mult * g);
+            b = static_cast<int>(color_mult * b);
+
+            CHECK_SDL(SDL_SetRenderDrawColor(ren, r, g, b, 255));
+
+            drawtilerect(screen_col, screen_y1, 1, screen_y2 - screen_y1);
 
             // for diagnostics
             if (screen_col == TILE_COLS/2) {
