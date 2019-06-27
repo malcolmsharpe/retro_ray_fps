@@ -87,6 +87,8 @@ SDL_Window * win = NULL;
 TTF_Font * font = NULL;
 SDL_Renderer * ren = NULL;
 
+sdl_ptr<SDL_Texture> pixel_screen;
+
 sdl_ptr<SDL_Texture> red_brick;
 sdl_ptr<SDL_Texture> green_brick;
 sdl_ptr<SDL_Texture> red_panel;
@@ -102,6 +104,8 @@ void cleanup()
     green_panel.reset();
     red_2panel.reset();
     green_2panel.reset();
+
+    pixel_screen.reset();
 
     if (ren) SDL_DestroyRenderer(ren);
     if (font) TTF_CloseFont(font);
@@ -249,28 +253,25 @@ void update()
 
 const double FOV = 0.25; // in interval [0,1)
 
-void drawtile(int x, int y)
-{
-    SDL_Rect rect;
-    rect.x = x * TILE_SIZE;
-    rect.y = y * TILE_SIZE;
-    rect.w = TILE_SIZE;
-    rect.h = TILE_SIZE;
-    CHECK_SDL(SDL_RenderFillRect(ren, &rect));
-}
-
 void drawtilerect(int x, int y, int w, int h)
 {
     SDL_Rect rect;
-    rect.x = x * TILE_SIZE;
-    rect.y = y * TILE_SIZE;
-    rect.w = w * TILE_SIZE;
-    rect.h = h * TILE_SIZE;
+    rect.x = x;
+    rect.y = y;
+    rect.w = w;
+    rect.h = h;
     CHECK_SDL(SDL_RenderFillRect(ren, &rect));
+}
+
+void drawtile(int x, int y)
+{
+    drawtilerect(x, y, 1, 1);
 }
 
 void render()
 {
+    CHECK_SDL(SDL_SetRenderTarget(ren, pixel_screen.get()));
+
     CHECK_SDL(SDL_SetRenderDrawColor(ren, 40, 40, 40, 255));
     CHECK_SDL(SDL_RenderClear(ren));
 
@@ -427,7 +428,7 @@ void render()
             }
 
             SDL_Rect srcrect = { proj_tex_offset, 0, 1, 16 };
-            SDL_Rect dstrect = { screen_col*TILE_SIZE, screen_y1*TILE_SIZE, TILE_SIZE, (screen_y2-screen_y1)*TILE_SIZE };
+            SDL_Rect dstrect = { screen_col, screen_y1, 1, screen_y2-screen_y1 };
             CHECK_SDL(SDL_RenderCopy(ren, tex, &srcrect, &dstrect));
 
             // for diagnostics
@@ -438,17 +439,6 @@ void render()
             }
         }
     }
-
-    // diagnostics
-    CHECK_SDL(SDL_SetRenderDrawColor(ren, 255, 255, 255, 255));
-    char buf[256];
-
-    snprintf(buf, sizeof(buf),
-        "X=%.2lf, Y=%.2lf, A=%.2lf ;  X=%.2lf, Y=%.2lf, D=%.2lf ;  t=%.1lf ms",
-        player_x, player_y, player_angle,
-        straight_x, straight_y, straight_dist,
-        avgFrameTime_ms());
-    DrawText(ren, font, buf, {255, 255, 255, 255}, 0, 0, NULL, NULL, false);
 
     // mini-map
     FOR(y,MAP_HEIGHT) {
@@ -468,6 +458,21 @@ void render()
         CHECK_SDL(SDL_SetRenderDrawColor(ren, 150, 63, 255, 255));
         drawtile(TILE_COLS - MAP_WIDTH + minimap_x, minimap_y);
     }
+
+    // scale up
+    CHECK_SDL(SDL_SetRenderTarget(ren, NULL));
+    CHECK_SDL(SDL_RenderCopy(ren, pixel_screen.get(), NULL, NULL));
+
+    // diagnostics
+    CHECK_SDL(SDL_SetRenderDrawColor(ren, 255, 255, 255, 255));
+    char buf[256];
+
+    snprintf(buf, sizeof(buf),
+        "X=%.2lf, Y=%.2lf, A=%.2lf ;  X=%.2lf, Y=%.2lf, D=%.2lf ;  t=%.1lf ms",
+        player_x, player_y, player_angle,
+        straight_x, straight_y, straight_dist,
+        avgFrameTime_ms());
+    DrawText(ren, font, buf, {255, 255, 255, 255}, 0, 0, NULL, NULL, false);
 
     SDL_RenderPresent(ren);
 }
@@ -505,6 +510,9 @@ int main()
 
     ren = SDL_CreateRenderer(win, -1, 0);
     if (!ren) failSDL("SDL_CreateRenderer");
+
+    pixel_screen.reset(SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, TILE_COLS, TILE_ROWS));
+    if (!pixel_screen) failSDL("SDL_CreateTexture");
 
     // load textures
     red_brick.reset(LoadTexture(ren, "data/red_brick.png"));
