@@ -403,12 +403,17 @@ void render()
         }
 
         if (proj_dist != 0) {
-            double height_mult = 1.0 / proj_dist;
+            // TODO: Be more sensible when proj_dist is close to zero.
+            double viewport_unit_per_wall_unit = 1.0 / proj_dist;
+            double viewport_dist_per_tile = 2 * screen_tan_max / (TILE_COLS-1);
 
-            int screen_half_height = static_cast<int>(round((TILE_ROWS/2) * height_mult));
+            double wall_viewport_height = viewport_unit_per_wall_unit;
+            double wall_tile_height = wall_viewport_height / viewport_dist_per_tile;
 
-            int screen_y1 = TILE_ROWS/2-screen_half_height;
-            int screen_y2 = TILE_ROWS/2+screen_half_height;
+            int wall_half_tile_height = static_cast<int>(round(wall_tile_height/2));
+
+            int screen_y1 = TILE_ROWS/2-wall_half_tile_height;
+            int screen_y2 = TILE_ROWS/2+wall_half_tile_height;
 
             double color_mult = 1.0;
 
