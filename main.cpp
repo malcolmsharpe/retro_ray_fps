@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
+#include <vector>
 
 #include <SDL.h>
 #include <SDL_image.h>
@@ -13,6 +14,7 @@
 
 #define FR(i,a,b) for(int i=(a);i<(b);++i)
 #define FOR(i,n) FR(i,0,n)
+#define BEND(v) (v).begin(),(v).end()
 
 // SDL utilities
 struct delete_sdl
@@ -96,6 +98,8 @@ sdl_ptr<SDL_Texture> green_panel;
 sdl_ptr<SDL_Texture> red_2panel;
 sdl_ptr<SDL_Texture> green_2panel;
 
+sdl_ptr<SDL_Texture> frog_sprite;
+
 void cleanup()
 {
     red_brick.reset();
@@ -104,6 +108,8 @@ void cleanup()
     green_panel.reset();
     red_2panel.reset();
     green_2panel.reset();
+
+    frog_sprite.reset();
 
     pixel_screen.reset();
 
@@ -141,12 +147,11 @@ double avgFrameTime_ms()
 }
 
 // main code
-const int TILE_COLS = 128;
-const int TILE_ROWS = 96;
-const int TILE_SIZE = 8;
+const int TILE_COLS = 320;//256;//128;
+const int TILE_ROWS = 240;//192;//96;
 
-const int WIN_WIDTH = TILE_SIZE * TILE_COLS;
-const int WIN_HEIGHT = TILE_SIZE * TILE_ROWS;
+const int WIN_WIDTH = 1600;
+const int WIN_HEIGHT = 1200;
 
 const int FONT_HEIGHT = 16;
 
@@ -160,8 +165,8 @@ char map_grid[MAP_HEIGHT][MAP_WIDTH+1] = {
     "#..............#",
     "#......##......#",
     "#......##......#",
-    "#..............#",
-    "###............#",
+    "#..........f...#",
+    "###......f.....#",
     "##.............#",
     "#......####..###",
     "#......#.......#",
@@ -172,11 +177,62 @@ char map_grid[MAP_HEIGHT][MAP_WIDTH+1] = {
     "################",
 };
 
+const double EPS = 1e-8;
+
 const double PLAYER_MOVE_SPEED = 2.0;
 
 double player_x;
 double player_y;
 double player_angle; // in interval [0,1)
+
+double player_dx;
+double player_dy;
+double screen_tan_max;
+
+struct Vector3D {
+    double x,y,z;
+};
+
+struct SceneRect {
+    double z,x,y,w,h;
+};
+
+struct ViewRect {
+    double x,y,w,h;
+};
+
+Vector3D world_to_scene(Vector3D v_world)
+{
+    Vector3D v_scene;
+    v_scene.z = player_dx * (v_world.x - player_x) + player_dy * (v_world.y - player_y);
+    v_scene.x = -player_dy * (v_world.x - player_x) + player_dx * (v_world.y - player_y);
+    v_scene.y = -v_world.z;
+    return v_scene;
+}
+
+ViewRect scene_to_view(SceneRect r_scene)
+{
+    ViewRect r_view;
+    r_view.x = r_scene.x / r_scene.z;
+    r_view.y = r_scene.y / r_scene.z;
+    r_view.w = r_scene.w / r_scene.z;
+    r_view.h = r_scene.h / r_scene.z;
+    return r_view;
+}
+
+SDL_Rect view_to_sdl(ViewRect r_view)
+{
+    double tile_per_view = (TILE_COLS-1) / (2.0 * screen_tan_max);
+
+    SDL_Rect r_sdl;
+    r_sdl.x = static_cast<int>(round((r_view.x) * tile_per_view + TILE_COLS/2.0));
+    r_sdl.y = static_cast<int>(round((r_view.y) * tile_per_view + TILE_ROWS/2.0));
+    int x2 = static_cast<int>(round((r_view.x + r_view.w) * tile_per_view + TILE_COLS/2.0));
+    int y2 = static_cast<int>(round((r_view.y + r_view.h) * tile_per_view + TILE_ROWS/2.0));
+    r_sdl.w = x2 - r_sdl.x;
+    r_sdl.h = y2 - r_sdl.y;
+    return r_sdl;
+}
 
 void wrap_angle(double & angle) {
     double intpart;
@@ -213,6 +269,43 @@ void rotateplayer(double amt)
     player_angle += amt;
     wrap_angle(player_angle);
 }
+
+struct Entity
+{
+    SDL_Texture * sprite;
+    double x;
+    double y;
+
+    double height_scene;
+    double width_scene;
+    Vector3D scene_coords;
+
+    int sprite_w;
+    int sprite_h;
+    double depth;
+
+    Entity(SDL_Texture & sprite_, double x_, double y_)
+        : sprite(&sprite_)
+        , x(x_)
+        , y(y_)
+    {
+        depth = 0;
+        height_scene = 0.8; // TODO
+        width_scene = 0.8;
+
+        CHECK_SDL(SDL_QueryTexture(sprite, NULL, NULL, &sprite_w, &sprite_h));
+    }
+
+    Vector3D world_coords()
+    {
+        Vector3D ret;
+        ret.x = x;
+        ret.y = y;
+        ret.z = -0.5;
+        return ret;
+    }
+};
+std::vector<Entity> entities;
 
 bool quitRequested;
 void update()
@@ -270,26 +363,28 @@ void drawtile(int x, int y)
 
 void render()
 {
+    //// useful global values
+    player_dx = cos(2*M_PI * player_angle);
+    player_dy = sin(2*M_PI * player_angle);
+
+    double screen_angle_max = FOV/2;
+    screen_tan_max = tan(2*M_PI * screen_angle_max);
+
+    //// floor & ceiling
     CHECK_SDL(SDL_SetRenderTarget(ren, pixel_screen.get()));
 
     CHECK_SDL(SDL_SetRenderDrawColor(ren, 40, 40, 40, 255));
     CHECK_SDL(SDL_RenderClear(ren));
 
     CHECK_SDL(SDL_SetRenderDrawColor(ren, 135, 206, 235, 255));
-
     drawtilerect(0, 0, TILE_COLS, TILE_ROWS/2);
 
+    //// ray-casting
     double straight_x = 0;
     double straight_y = 0;
     double straight_dist = 0;
 
-    double player_dx = cos(2*M_PI * player_angle);
-    double player_dy = sin(2*M_PI * player_angle);
-
     FOR(screen_col, TILE_COLS) {
-        double screen_angle_max = FOV/2;
-        double screen_tan_max = tan(2*M_PI * screen_angle_max);
-
         double col_tan = -screen_tan_max + 2*screen_tan_max * screen_col / (TILE_COLS-1);
         double col_angle_offset = atan(col_tan) / (2*M_PI);
         double col_angle = player_angle + col_angle_offset;
@@ -440,7 +535,30 @@ void render()
         }
     }
 
-    // mini-map
+    //// sprites
+    // Sort by decreasing depth
+    for (auto & e : entities) {
+        e.scene_coords = world_to_scene(e.world_coords());
+    }
+    std::sort(BEND(entities), [](Entity const & a, Entity const & b) { return a.scene_coords.z > b.scene_coords.z; });
+
+    for (auto & e : entities) {
+        if (e.scene_coords.z > EPS) {
+            SceneRect ent_rect_scene;
+            ent_rect_scene.z = e.scene_coords.z;
+            ent_rect_scene.x = e.scene_coords.x - e.width_scene/2.0;
+            ent_rect_scene.y = e.scene_coords.y - e.height_scene;
+            ent_rect_scene.w = e.width_scene;
+            ent_rect_scene.h = e.height_scene;
+
+            ViewRect ent_rect_view = scene_to_view(ent_rect_scene);
+            SDL_Rect ent_rect_sdl = view_to_sdl(ent_rect_view);
+
+            CHECK_SDL(SDL_RenderCopy(ren, e.sprite, NULL, &ent_rect_sdl));
+        }
+    }
+
+    //// mini-map
     FOR(y,MAP_HEIGHT) {
         FOR(x,MAP_WIDTH) {
             if (map_grid[y][x] == '#') {
@@ -459,17 +577,17 @@ void render()
         drawtile(TILE_COLS - MAP_WIDTH + minimap_x, minimap_y);
     }
 
-    // scale up
+    //// scale up
     CHECK_SDL(SDL_SetRenderTarget(ren, NULL));
     CHECK_SDL(SDL_RenderCopy(ren, pixel_screen.get(), NULL, NULL));
 
-    // diagnostics
+    //// diagnostics
     CHECK_SDL(SDL_SetRenderDrawColor(ren, 255, 255, 255, 255));
     char buf[256];
 
     snprintf(buf, sizeof(buf),
-        "X=%.2lf, Y=%.2lf, A=%.2lf ;  X=%.2lf, Y=%.2lf, D=%.2lf ;  t=%.1lf ms",
-        player_x, player_y, player_angle,
+        "X=%.2lf, Y=%.2lf, A=%.2lf, dX=%.2lf, dY=%.2lf ;  X=%.2lf, Y=%.2lf, D=%.2lf ;  t=%.1lf ms",
+        player_x, player_y, player_angle, player_dx, player_dy,
         straight_x, straight_y, straight_dist,
         avgFrameTime_ms());
     DrawText(ren, font, buf, {255, 255, 255, 255}, 0, 0, NULL, NULL, false);
@@ -521,11 +639,20 @@ int main()
     green_panel.reset(LoadTexture(ren, "data/green_panel.png"));
     red_2panel.reset(LoadTexture(ren, "data/red_2panel.png"));
     green_2panel.reset(LoadTexture(ren, "data/green_2panel.png"));
+    frog_sprite.reset(LoadTexture(ren, "data/frog.png"));
 
     // init game
     player_x = 1.5;
     player_y = 14.5;
     player_angle = 0;
+
+    FOR(y,MAP_HEIGHT) {
+        FOR(x,MAP_HEIGHT) {
+            if (map_grid[y][x] == 'f') {
+                entities.push_back(Entity(*frog_sprite, x + 0.5, y + 0.5));
+            }
+        }
+    }
 
     // IO loop
     prevFrame_ms = SDL_GetTicks();
