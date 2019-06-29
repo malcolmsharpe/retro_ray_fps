@@ -361,6 +361,8 @@ void drawtile(int x, int y)
     drawtilerect(x, y, 1, 1);
 }
 
+double column_dist[TILE_COLS];
+
 void render()
 {
     //// useful global values
@@ -498,6 +500,8 @@ void render()
             proj_tex_offset = proj_tex_offsets[dir];
         }
 
+        column_dist[screen_col] = proj_dist;
+
         if (proj_dist != 0) {
             // TODO: Be more sensible when proj_dist is close to zero.
             double viewport_unit_per_wall_unit = 1.0 / proj_dist;
@@ -554,7 +558,29 @@ void render()
             ViewRect ent_rect_view = scene_to_view(ent_rect_scene);
             SDL_Rect ent_rect_sdl = view_to_sdl(ent_rect_view);
 
-            CHECK_SDL(SDL_RenderCopy(ren, e.sprite, NULL, &ent_rect_sdl));
+            FOR(x_offset, ent_rect_sdl.w) {
+                int x = ent_rect_sdl.x + x_offset;
+                if (x < 0 || TILE_COLS <= x || column_dist[x] < ent_rect_scene.z) continue;
+
+                double c_x = x_offset + 0.5;
+                double c_u = c_x * e.sprite_w / ent_rect_sdl.w;
+                int u = static_cast<int>(round(c_u - 0.5));
+                u = std::max(0, std::min(u, e.sprite_w-1));
+
+                SDL_Rect srcrect;
+                srcrect.x = u;
+                srcrect.y = 0;
+                srcrect.w = 1;
+                srcrect.h = e.sprite_h;
+
+                SDL_Rect dstrect;
+                dstrect.x = x;
+                dstrect.y = ent_rect_sdl.y;
+                dstrect.w = 1;
+                dstrect.h = ent_rect_sdl.h;
+
+                CHECK_SDL(SDL_RenderCopy(ren, e.sprite, &srcrect, &dstrect));
+            }
         }
     }
 
