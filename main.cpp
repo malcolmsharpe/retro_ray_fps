@@ -172,7 +172,7 @@ char map_grid[MAP_HEIGHT][MAP_WIDTH+1] = {
     "#......#.......#",
     "#......#.......#",
     "#..............#",
-    "#......#########",
+    "#....f.#########",
     "#..............#",
     "################",
 };
@@ -361,6 +361,40 @@ void drawtile(int x, int y)
     drawtilerect(x, y, 1, 1);
 }
 
+#define ENABLE_SUBPIXEL_TEXTURE_MAPPING 1
+
+void map_texture_column(SDL_Texture * tex, int tex_x, int ren_x, double view_y1, double view_y2)
+{
+    double tile_per_view = (TILE_COLS-1) / (2.0 * screen_tan_max);
+    double ren_y1 = TILE_ROWS/2 + view_y1*tile_per_view;
+    double ren_y2 = TILE_ROWS/2 + view_y2*tile_per_view;
+
+    int texH;
+    if (SDL_QueryTexture(tex, NULL, NULL, NULL, &texH) < 0) failSDL("SDL_QueryTexture");
+
+    int ren_y1_int = static_cast<int>(round(ren_y1));
+    int ren_y2_int = static_cast<int>(round(ren_y2));
+
+    if (ENABLE_SUBPIXEL_TEXTURE_MAPPING) {
+        if (ren_y1_int < 0) ren_y1_int = 0;
+        if (ren_y2_int >= TILE_ROWS) ren_y2_int = TILE_ROWS;
+
+        FR(ren_y, ren_y1_int, ren_y2_int) {
+            double tex_y_norm = (ren_y + 0.5 - ren_y1) / (ren_y2 - ren_y1);
+            int tex_y = static_cast<int>(tex_y_norm * texH);
+            if (tex_y >= texH) tex_y = texH;
+
+            SDL_Rect srcrect = { tex_x, tex_y, 1, 1 };
+            SDL_Rect dstrect = { ren_x, ren_y, 1, 1 };
+            CHECK_SDL(SDL_RenderCopy(ren, tex, &srcrect, &dstrect));
+        }
+    } else {
+        SDL_Rect srcrect = { tex_x, 0, 1, texH };
+        SDL_Rect dstrect = { ren_x, ren_y1_int, 1, ren_y2_int-ren_y1_int };
+        CHECK_SDL(SDL_RenderCopy(ren, tex, &srcrect, &dstrect));
+    }
+}
+
 double column_dist[TILE_COLS];
 
 void render()
@@ -505,19 +539,11 @@ void render()
         if (proj_dist != 0) {
             // TODO: Be more sensible when proj_dist is close to zero.
             double viewport_unit_per_wall_unit = 1.0 / proj_dist;
-            double viewport_dist_per_tile = 2 * screen_tan_max / (TILE_COLS-1);
 
             double wall_viewport_height = viewport_unit_per_wall_unit;
-            double wall_tile_height = wall_viewport_height / viewport_dist_per_tile;
 
-            int wall_half_tile_height = static_cast<int>(round(wall_tile_height/2));
-
-            int screen_y1 = TILE_ROWS/2-wall_half_tile_height;
-            int screen_y2 = TILE_ROWS/2+wall_half_tile_height;
-
-            double color_mult = 1.0;
-
-            color_mult = 0.2 * std::min(1.0/proj_dist, 1.0) + 0.8;
+            double view_y1 = -wall_viewport_height/2.0;
+            double view_y2 = wall_viewport_height/2.0;
 
             SDL_Texture * tex = NULL;
             if (proj_color == 2) {
@@ -526,9 +552,7 @@ void render()
                 tex = red_2panel.get();
             }
 
-            SDL_Rect srcrect = { proj_tex_offset, 0, 1, 16 };
-            SDL_Rect dstrect = { screen_col, screen_y1, 1, screen_y2-screen_y1 };
-            CHECK_SDL(SDL_RenderCopy(ren, tex, &srcrect, &dstrect));
+            map_texture_column(tex, proj_tex_offset, screen_col, view_y1, view_y2);
 
             // for diagnostics
             if (screen_col == TILE_COLS/2) {
@@ -567,19 +591,7 @@ void render()
                 int u = static_cast<int>(round(c_u - 0.5));
                 u = std::max(0, std::min(u, e.sprite_w-1));
 
-                SDL_Rect srcrect;
-                srcrect.x = u;
-                srcrect.y = 0;
-                srcrect.w = 1;
-                srcrect.h = e.sprite_h;
-
-                SDL_Rect dstrect;
-                dstrect.x = x;
-                dstrect.y = ent_rect_sdl.y;
-                dstrect.w = 1;
-                dstrect.h = ent_rect_sdl.h;
-
-                CHECK_SDL(SDL_RenderCopy(ren, e.sprite, &srcrect, &dstrect));
+                map_texture_column(e.sprite, u, x, ent_rect_view.y, ent_rect_view.y + ent_rect_view.h);
             }
         }
     }
