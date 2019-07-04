@@ -667,7 +667,7 @@ int main()
     font = TTF_OpenFont("data/Vera.ttf", FONT_HEIGHT);
     if (!font) failTTF("TTF_OpenFont");
 
-    win = SDL_CreateWindow("SDL Simple FPS",
+    win = SDL_CreateWindow("Retro Ray FPS",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         WIN_WIDTH, WIN_HEIGHT, SDL_WINDOW_SHOWN);
     if (!win) failSDL("SDL_CreateWindow");
