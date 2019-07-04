@@ -147,11 +147,19 @@ double avgFrameTime_ms()
 }
 
 // main code
+#ifdef __EMSCRIPTEN__
+const int TILE_COLS = 128;
+const int TILE_ROWS = 96;
+
+const int WIN_WIDTH = 512;
+const int WIN_HEIGHT = 384;
+#else
 const int TILE_COLS = 320;//256;//128;
 const int TILE_ROWS = 240;//192;//96;
 
 const int WIN_WIDTH = 1600;
 const int WIN_HEIGHT = 1200;
+#endif
 
 const int FONT_HEIGHT = 16;
 
@@ -361,7 +369,7 @@ void drawtile(int x, int y)
     drawtilerect(x, y, 1, 1);
 }
 
-#define ENABLE_SUBPIXEL_TEXTURE_MAPPING 1
+#define ENABLE_SUBPIXEL_TEXTURE_MAPPING 0
 
 void map_texture_column(SDL_Texture * tex, int tex_x, int ren_x, double view_y1, double view_y2)
 {
